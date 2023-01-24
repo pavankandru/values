@@ -11,8 +11,8 @@ import torch.optim as optim
 model = AutoModel.from_pretrained("microsoft/deberta-base")
 tokenizer = AutoTokenizer.from_pretrained("microsoft/deberta-base")
 
-train_loader = DataLoader(Data(tokenizer,"training"),batch_size=16,collate_fn=collate_fn,shuffle=True)
-val_loader = DataLoader(Data(tokenizer,"validation"),batch_size=16,collate_fn=collate_fn)
+train_loader = DataLoader(Data(tokenizer,"training"),batch_size=16,collate_fn=collate_fn,shuffle=True,num_workers=20)
+val_loader = DataLoader(Data(tokenizer,"validation"),batch_size=16,collate_fn=collate_fn,num_workers=20)
 
 
 wandb_logger = WandbLogger(project="values")

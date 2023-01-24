@@ -43,9 +43,9 @@ def collate_fn(batch):
         i,j,k = row['premise'],row['stance'],row['conclusion']
         unpadded_batch.append([1]+i+[2]+j+[2]+k+[2])
     max_len = max([len(i) for i in unpadded_batch])
-    x = [i+[0]*(max_len-len(i)) for i in unpadded_batch]
+    x = np.array([i+[0]*(max_len-len(i)) for i in unpadded_batch])
     
-    return torch.LongTensor(x),(torch.Tensor([row['labels'] for row in batch]) if 'labels' in batch[0] else None)
+    return torch.LongTensor(x),(torch.Tensor(np.array([row['labels'] for row in batch])) if 'labels' in batch[0] else None)
 
 
 
