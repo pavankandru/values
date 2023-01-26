@@ -5,14 +5,19 @@ from pytorch_lightning.loggers import WandbLogger
 from pytorch_lightning import Trainer
 
 
+import pickle
+
+
 
 import torch.optim as optim
 
 model = AutoModel.from_pretrained("microsoft/deberta-base")
 tokenizer = AutoTokenizer.from_pretrained("microsoft/deberta-base")
 
-train_loader = DataLoader(Data(tokenizer,"training"),batch_size=16,collate_fn=collate_fn,shuffle=True,num_workers=20)
-val_loader = DataLoader(Data(tokenizer,"validation"),batch_size=16,collate_fn=collate_fn,num_workers=20)
+train_loader = DataLoader(Data(tokenizer,"training"),batch_size=16,collate_fn=collate_fn,shuffle=True)
+val_loader = DataLoader(Data(tokenizer,"validation"),batch_size=16,collate_fn=collate_fn,)
+test_loader = DataLoader(Data(tokenizer,"test"),batch_size=16,collate_fn=collate_fn,)
+
 
 
 wandb_logger = WandbLogger(project="values")
@@ -57,10 +62,10 @@ class MLClassifier(pl.LightningModule):
         # take average of `self.mc_iteration` iterations
         X,y = batch
         pred = self(X)
-        return pred,y
+        return pred
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=1e-3)
+        optimizer = optim.Adam(self.parameters(), lr=1e-5)
         return optimizer
 
 
@@ -72,5 +77,7 @@ clf = MLClassifier(model)
 trainer = pl.Trainer( max_epochs=1,accelerator="gpu", devices=1,logger=wandb_logger)
 trainer.fit(model=clf, train_dataloaders=train_loader,val_dataloaders = val_loader)
 
-predictions = trainer.predict(model=clf,dataloaders=train_loader)
-print(predictions)
+predictions = trainer.predict(model=clf,dataloaders=test_loader)
+
+
+pickle.dump(predictions,open('predictions','wb'))
