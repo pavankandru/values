@@ -8,12 +8,12 @@ from sklearn.metrics import classification_report
 
 
 def extra_labels(df):
-    df['Self-direction'] = df[['Self-direction: thought', 'Self-direction: action']].sum(axis=0)
-    df['Power'] = df[['Power: dominance','Power: resources']].sum(axis=0)
-    df['Security']= df[['Security: personal', 'Security: societal']].sum(axis=0)
-    df['Conformity']= df[['Conformity: rules', 'Conformity: interpersonal']].sum(axis=0)
-    df['Benevolence']=df[['Benevolence: caring', 'Benevolence: dependability']].sum(axis=0)
-    df['Universalism'] =df[['Universalism: concern', 'Universalism: nature','Universalism: tolerance', 'Universalism: objectivity']].sum(axis=0)
+    df['Self-direction'] = df[['Self-direction: thought', 'Self-direction: action']].sum(axis=1)
+    df['Power'] = df[['Power: dominance','Power: resources']].sum(axis=1)
+    df['Security']= df[['Security: personal', 'Security: societal']].sum(axis=1)
+    df['Conformity']= df[['Conformity: rules', 'Conformity: interpersonal']].sum(axis=1)
+    df['Benevolence']=df[['Benevolence: caring', 'Benevolence: dependability']].sum(axis=1)
+    df['Universalism'] =df[['Universalism: concern', 'Universalism: nature','Universalism: tolerance', 'Universalism: objectivity']].sum(axis=1)
     for i in ['Self-direction','Power','Security','Conformity','Benevolence','Universalism']:
         df[i]=(df[i]>0)*1
     return df
@@ -97,12 +97,12 @@ class MLClassifier(pl.LightningModule):
                                          # Try more 
                                          nn.Linear(128,26)])
         
-        weight=torch.Tensor([1 , 1, 1, 1, 1,
-       1, 1 , 1, 1, 1,
-       1, 1, 1, 1, 1,
-       1, 1, 1, 1, 1,
-       0.18, 0.18, 0.18, 0.18, 0.18,
-       0.18])
+        weight=torch.Tensor([[0.30705791, 0.15538616, 0.55848939, 0.74826734, 0.13403745,
+       0.46994839, 0.58387527, 0.59285797, 0.10154353, 0.15793347,
+       0.44809032, 0.16938799, 1.2845256 , 0.60686249, 0.12175598,
+       0.28758036, 0.11218564, 0.60686249, 0.34561227, 0.20773999,
+       0.32136078, 0.67596578, 0.17676292, 0.40418573, 0.24351562,
+       0.17820916]])
         self.loss_fn = nn.MultiLabelSoftMarginLoss(weight=weight)
         self.class_names =['Self-direction: thought', 'Self-direction: action', 'Stimulation',
        'Hedonism', 'Achievement', 'Power: dominance', 'Power: resources',
@@ -140,11 +140,11 @@ class MLClassifier(pl.LightningModule):
     def training_epoch_end(self, training_step_outputs):
         predictions,labels = self.prediction_reducer(training_step_outputs)
         # print("\n\n\nHere\n\n\n",predictions.shape,labels.shape)
-        report = classification_report(predictions.cpu()>1/26,labels.cpu(),target_names=self.class_names[:20],zero_division=0,output_dict=True)
+        report = classification_report(predictions.cpu()>0.05,labels.cpu(),target_names=self.class_names[:20],zero_division=0,output_dict=True)
         self.log("Training Macro F1", report['macro avg']['f1-score'],on_epoch=True)
         self.log("Training Micro F1", report['micro avg']['f1-score'],on_epoch=True)
         print('\n\n Training')
-        print(classification_report(predictions.cpu()>1/26,labels.cpu(),target_names=self.class_names[:20],zero_division=0))
+        print(classification_report(predictions.cpu()>0.05,labels.cpu(),target_names=self.class_names[:20],zero_division=0))
 
     def validation_step(self, batch,batch_idx):
         # training_step defines the train loop.
@@ -160,11 +160,11 @@ class MLClassifier(pl.LightningModule):
     def validation_epoch_end(self, training_step_outputs):
         predictions,labels = self.prediction_reducer(training_step_outputs)
         # print("\n\n\nHere\n\n\n",predictions.shape,labels.shape)
-        report = classification_report(predictions.cpu()>1/26,labels.cpu(),target_names=self.class_names[:20],zero_division=0,output_dict=True)
+        report = classification_report(predictions.cpu()>0.05,labels.cpu(),target_names=self.class_names[:20],zero_division=0,output_dict=True)
         self.log("Validation Macro F1", report['macro avg']['f1-score'],on_epoch=True)
         self.log("Validation Micro F1", report['micro avg']['f1-score'],on_epoch=True)
         print('\n\n Validation')
-        print(classification_report(predictions.cpu()>1/26,labels.cpu(),target_names=self.class_names[:20],zero_division=0))
+        print(classification_report(predictions.cpu()>0.05,labels.cpu(),target_names=self.class_names[:20],zero_division=0))
     
     def predict_step(self, batch, batch_idx):
         # take average of `self.mc_iteration` iterations
