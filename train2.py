@@ -1,4 +1,60 @@
-from utils import *
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch.utils.data import Dataset,DataLoader
+import pandas as pd
+import numpy as np
+from sklearn.metrics import classification_report
+
+
+
+class Data(Dataset):
+    def __init__(self,tokenizer,split="training") -> None:
+        super().__init__()
+        df = pd.read_csv('data/arguments-{}.tsv'.format(split),delimiter='\t')
+        if split!='test':
+            df2 = pd.read_csv('data/labels-{}.tsv'.format(split),delimiter='\t')
+            df = df.merge(df2,on=["Argument ID"])
+            self.labels = df[df.columns.difference(['Argument ID','Conclusion','Stance','Premise'])].values
+        
+        self.argument_ids  = df['Argument ID'].values
+        self.conclusion =df['Conclusion'].values
+        self.stance  = df['Stance'].values
+        self.premise = df['Premise'].values
+        self.tokenizer =tokenizer
+        self.split=split
+
+    def __len__(self):
+        return len(self.argument_ids)
+    
+    def __getitem__(self,idx):
+        return_dict =  {"premise":self.tokenizer(self.premise[idx],add_special_tokens=False)['input_ids'],
+                "stance":self.tokenizer(self.stance[idx],add_special_tokens=False)['input_ids'],
+                "conclusion":self.tokenizer(self.conclusion[idx],add_special_tokens=False)['input_ids'],
+                }
+        if self.split!='test':
+            return_dict["labels"]=self.labels[idx]
+        return return_dict
+
+
+def collate_fn(batch):
+    unpadded_batch=[[],[],[]]
+    for row in batch:
+        i,j,k = row['premise'],row['stance'],row['conclusion']
+        unpadded_batch[0].append(i)
+        unpadded_batch[1].append(j)
+        unpadded_batch[2].append(k)
+    max_len = [max([len(i) for i in unpadded_batch[j]]) for j in range(3)]
+    x = np.array([i+[0]*(max_len[0]-len(i)) for i in unpadded_batch[0]])
+    y = np.array([i+[0]*(max_len[1]-len(i)) for i in unpadded_batch[1]])
+    z = np.array([i+[0]*(max_len[2]-len(i)) for i in unpadded_batch[2]])
+    
+    return torch.LongTensor(x),torch.LongTensor(y),torch.LongTensor(z),(torch.Tensor(np.array([row['labels'] for row in batch])) if 'labels' in batch[0] else None)
+
+
+
+    
+
 from transformers import AutoModel,AutoTokenizer
 import pytorch_lightning as pl
 from pytorch_lightning.loggers import WandbLogger
@@ -31,7 +87,7 @@ class MLClassifier(pl.LightningModule):
         super().__init__()
         self.model=model
         self.classifier = nn.Sequential(*[
-                                         nn.Linear(768,128),
+                                         nn.Linear(3*768,128),
                                          nn.ReLU(),# Try more 
                                          nn.Linear(128,20)])
         
@@ -47,8 +103,11 @@ class MLClassifier(pl.LightningModule):
        'Universalism: concern', 'Universalism: nature',
        'Universalism: objectivity', 'Universalism: tolerance']
 
-    def forward(self,x):
-        emb = self.model(x)['last_hidden_state'][:,0,:]
+    def forward(self,x,k,l):
+        emb1 = self.model(x)['last_hidden_state'][:,0,:]
+        emb2 = self.model(k)['last_hidden_state'][:,0,:]
+        emb3 = self.model(l)['last_hidden_state'][:,0,:]
+        emb = torch.cat([emb1,emb2,emb3],dim=1)
         o = self.classifier(emb)
         return o
 
@@ -60,11 +119,12 @@ class MLClassifier(pl.LightningModule):
         return predictions
 
     def training_step(self, batch, batch_idx):
-        X,y = batch
-        o = self.forward(X)
+        X,k,l,y = batch
+        o = self.forward(X,k,l)
         loss = self.loss_fn(o, y)
         # Logging to TensorBoard (if installed) by default
         self.log("train_loss", loss)
+        # print("\n\n\nHere\n\n\n",o.shape)
         return {"loss": loss, "predictions": o,"labels":y}
 
     def training_epoch_end(self, training_step_outputs):
@@ -75,14 +135,17 @@ class MLClassifier(pl.LightningModule):
         print('\n\n Training')
         print(classification_report(predictions.cpu()>0.05,labels.cpu(),target_names=self.class_names,zero_division=0))
 
-    def validation_step(self, batch,batch_idx):
+    def validation_step(self, batch,bxatch_idx):
         # training_step defines the train loop.
         # it is independent of forward
-        X,y = batch
-        o = self.forward(X)
+        X,k,l,y = batch
+        o = self.forward(X,k,l)
         loss = self.loss_fn(o, y)
         # Logging to TensorBoard (if installed) by default
+        print("\n\n\nHere\n\n\n",o.shape,y.shape)
         self.log("Validation loss", loss,on_epoch=True)
+        # print("\n\n\nHere\n\n\n",o.shape)
+
         return {"loss": loss, "predictions": o,"labels":y}
 
     def validation_epoch_end(self, training_step_outputs):
@@ -95,8 +158,8 @@ class MLClassifier(pl.LightningModule):
     
     def predict_step(self, batch, batch_idx):
         # take average of `self.mc_iteration` iterations
-        X,y = batch
-        pred = self(X)
+        X,k,l,y = batch
+        pred = self(X,k,l)
         return pred
     
     
@@ -129,5 +192,5 @@ predictions_test = trainer.predict(model=clf,dataloaders=test_loader)
 predictions = trainer.predict(model=clf,dataloaders=val_loader)
 
 
-pickle.dump(predictions,open('predictions_val','wb'))
-pickle.dump(predictions_test,open('predictions_test','wb'))
+pickle.dump(predictions,open('predictions_val2','wb'))
+pickle.dump(predictions_test,open('predictions_test2','wb'))
