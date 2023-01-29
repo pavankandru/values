@@ -6,6 +6,9 @@ import pandas as pd
 import numpy as np
 from sklearn.metrics import classification_report
 
+from pytorch_lightning.loggers import WandbLogger
+wandb_logger = WandbLogger(project="values",)#
+
 
 def extra_labels(df):
     df['Self-direction'] = df[['Self-direction: thought', 'Self-direction: action']].sum(axis=1)
@@ -16,6 +19,14 @@ def extra_labels(df):
     df['Universalism'] =df[['Universalism: concern', 'Universalism: nature','Universalism: tolerance', 'Universalism: objectivity']].sum(axis=1)
     for i in ['Self-direction','Power','Security','Conformity','Benevolence','Universalism']:
         df[i]=(df[i]>0)*1
+
+    l3 = pd.read_csv('data/labels-level3.tsv',delimiter='\t')
+    # l4a = pd.read_csv('data/labels-level4a.tsv',delimiter='\t')
+    # l4b = pd.read_csv('data/labels-level4b.tsv',delimiter='\t')
+    df = pd.merge(df,l3,on='Argument ID')
+    # df = pd.merge(df,l4a,on='Argument ID')
+    # df = pd.merge(df,l4b,on='Argument ID')
+
     return df
 
 class Data(Dataset):
@@ -34,7 +45,8 @@ class Data(Dataset):
        'Universalism: concern', 'Universalism: nature',
        'Universalism: tolerance', 'Universalism: objectivity',
        'Self-direction', 'Power', 'Security', 'Conformity', 'Benevolence',
-       'Universalism']].values
+       'Universalism', 'Openness to change', 'Self-enhancement',
+       'Conservation', 'Self-transcendence',]].values
         
         self.argument_ids  = df['Argument ID'].values
         self.conclusion =df['Conclusion'].values
@@ -71,7 +83,8 @@ def collate_fn(batch):
 
 from transformers import AutoModel,AutoTokenizer
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import WandbLogger
+
+
 from pytorch_lightning import Trainer
 from sklearn.metrics import classification_report
 
@@ -91,7 +104,6 @@ test_loader = DataLoader(Data(tokenizer,"test"),batch_size=16,collate_fn=collate
 
 
 
-wandb_logger = WandbLogger(project="values")
 
 
 
@@ -103,14 +115,14 @@ class MLClassifier(pl.LightningModule):
         self.classifier = nn.Sequential(*[nn.Dropout(dropout),
                                          nn.Linear(768,128),
                                          # Try more 
-                                         nn.Linear(128,26)])
+                                         nn.Linear(128,30)])
         
-        weight=torch.Tensor([[0.30705791, 0.15538616, 0.55848939, 0.74826734, 0.13403745,
-       0.46994839, 0.58387527, 0.59285797, 0.10154353, 0.15793347,
-       0.44809032, 0.16938799, 1.2845256 , 0.60686249, 0.12175598,
-       0.28758036, 0.11218564, 0.60686249, 0.34561227, 0.20773999,
-       0.32136078, 0.67596578, 0.17676292, 0.40418573, 0.24351562,
-       0.17820916]])
+        weight=torch.Tensor([0.20436299, 0.1179275 , 0.33303599, 0.52893951, 0.11640093,
+       0.46711541, 0.50658995, 0.48605252, 0.07768442, 0.13272283,
+       0.33614847, 0.12151313, 0.83646248, 0.40872598, 0.08794104,
+       0.22340302, 0.09152134, 1.12399645, 0.25329498, 0.21282773,
+       0.29102476, 0.78149307, 0.16830348, 0.34922972, 0.22085674,
+       0.18909223, 0.44096777, 0.4231034 , 0.23879121, 0.23047096])
         self.loss_fn = nn.MultiLabelSoftMarginLoss(weight=weight)
         self.class_names =['Self-direction: thought', 'Self-direction: action', 'Stimulation',
        'Hedonism', 'Achievement', 'Power: dominance', 'Power: resources',
@@ -120,7 +132,8 @@ class MLClassifier(pl.LightningModule):
        'Universalism: concern', 'Universalism: nature',
        'Universalism: tolerance', 'Universalism: objectivity',
        'Self-direction', 'Power', 'Security', 'Conformity', 'Benevolence',
-       'Universalism']
+       'Universalism', 'Openness to change', 'Self-enhancement',
+       'Conservation', 'Self-transcendence', ]
 
     def forward(self,x):
         emb = self.model(x)['last_hidden_state'][:,0,:]
@@ -129,11 +142,11 @@ class MLClassifier(pl.LightningModule):
 
     def prediction_reducer(self,otps):
         predictions = torch.cat([i['predictions'].detach() for i in otps])
-        predictions = predictions[:,:-6]
+        predictions = predictions[:,:20]
         predictions = torch.sigmoid(predictions)
         if 'labels' in otps[0]:
             labels = torch.cat([i['labels'].detach() for i in otps])
-            labels=labels[:,:-6]
+            labels=labels[:,:20]
             return predictions,labels
         return predictions
 
@@ -160,6 +173,7 @@ class MLClassifier(pl.LightningModule):
         # it is independent of forward
         X,y = batch
         o = self.forward(X)
+
         # print("\n\n\nHere\n\n\n",o.shape,y.shape)
         loss = self.loss_fn(o, y)
         # Logging to TensorBoard (if installed) by default
@@ -184,7 +198,7 @@ class MLClassifier(pl.LightningModule):
     
 
     def configure_optimizers(self):
-        optimizer = optim.AdamW(self.parameters(), lr=1e-5)
+        optimizer = optim.Adam(self.parameters(), lr=1e-5)
         return optimizer
         # lr_scheduler = optim.lr_scheduler.StepLR(optimizer,step_size=2,gamma=0.3)
         # return {"optimizer": optimizer,  "lr_scheduler": lr_scheduler}
@@ -193,6 +207,7 @@ class MLClassifier(pl.LightningModule):
 
 # init the autoencoder
 clf = MLClassifier(model)
+wandb_logger.watch(clf, log="all")
 
 trainer = pl.Trainer( max_epochs=50,accelerator="gpu", devices=1,logger=wandb_logger,)
 trainer.fit(model=clf, train_dataloaders=train_loader,val_dataloaders = val_loader)
@@ -210,5 +225,5 @@ predictions_test = trainer.predict(model=clf,dataloaders=test_loader)
 predictions = trainer.predict(model=clf,dataloaders=val_loader)
 
 
-pickle.dump(predictions,open('predictions_val32','wb'))
-pickle.dump(predictions_test,open('predictions_test32','wb'))
+pickle.dump(predictions,open('predictions_val43','wb'))
+pickle.dump(predictions_test,open('predictions_test43','wb'))
