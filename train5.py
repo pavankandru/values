@@ -7,7 +7,9 @@ import numpy as np
 from sklearn.metrics import classification_report
 
 from pytorch_lightning.loggers import WandbLogger
-wandb_logger = WandbLogger(project="values",)#
+wandb_logger = WandbLogger(project="values",
+                           mode="disabled"
+)#
 
 
 def extra_labels(df):
@@ -30,8 +32,11 @@ def extra_labels(df):
     return df
 
 class Data(Dataset):
-    def __init__(self,tokenizer,split="training") -> None:
+    def __init__(self,tokenizer,split="training",dummy=False) -> None:
         super().__init__()
+        self.dummy=dummy
+        if dummy:
+            split='training'
         df = pd.read_csv('data/arguments-{}.tsv'.format(split),delimiter='\t')
         if split!='test':
             df2 = pd.read_csv('data/labels-{}.tsv'.format(split),delimiter='\t')
@@ -44,9 +49,10 @@ class Data(Dataset):
        'Benevolence: caring', 'Benevolence: dependability',
        'Universalism: concern', 'Universalism: nature',
        'Universalism: tolerance', 'Universalism: objectivity',
-       'Self-direction', 'Power', 'Security', 'Conformity', 'Benevolence',
-       'Universalism', 'Openness to change', 'Self-enhancement',
-       'Conservation', 'Self-transcendence',]].values
+    #    'Self-direction', 'Power', 'Security', 'Conformity', 'Benevolence',
+    #    'Universalism', 'Openness to change', 'Self-enhancement',
+    #    'Conservation', 'Self-transcendence',
+       ]].values
         
         self.argument_ids  = df['Argument ID'].values
         self.conclusion =df['Conclusion'].values
@@ -54,9 +60,11 @@ class Data(Dataset):
         self.premise = df['Premise'].values
         self.tokenizer =tokenizer
         self.split=split
+        if dummy:
+            print(len(self.labels))
 
     def __len__(self):
-        return len(self.argument_ids)
+        return len(self.argument_ids) if not self.dummy else 20
     
     def __getitem__(self,idx):
         return_dict =  {"premise":self.tokenizer(self.premise[idx],add_special_tokens=False)['input_ids'],
@@ -98,31 +106,43 @@ import torch.optim as optim
 model = AutoModel.from_pretrained("microsoft/deberta-base")
 tokenizer = AutoTokenizer.from_pretrained("microsoft/deberta-base")
 
-train_loader = DataLoader(Data(tokenizer,"training"),batch_size=16,collate_fn=collate_fn,shuffle=True)
-val_loader = DataLoader(Data(tokenizer,"validation"),batch_size=16,collate_fn=collate_fn,)
+train_loader = DataLoader(Data(tokenizer,"training",dummy=True),batch_size=2,collate_fn=collate_fn,shuffle=True)
+val_loader = DataLoader(Data(tokenizer,"validation",dummy=True),batch_size=16,collate_fn=collate_fn,)
 test_loader = DataLoader(Data(tokenizer,"test"),batch_size=16,collate_fn=collate_fn,)
 
 
 
 
+class SiLU(nn.Module):
+    def __init__(self):
+        super().__init__()
 
+    def forward(self, x):
+        return  x * torch.sigmoid(x)
 
 # define the LightningModule
 class MLClassifier(pl.LightningModule):
     def __init__(self, model,dropout=0.2):
         super().__init__()
         self.model=model
-        self.classifier = nn.Sequential(*[nn.Dropout(dropout),
-                                         nn.Linear(768,128),
-                                         # Try more 
-                                         nn.Linear(128,30)])
+        self.classifier = nn.Sequential(*[
+                                         SiLU(),
+                                         nn.Linear(768,512), 
+                                         SiLU(),
+                                         nn.Linear(512,256), 
+                                         SiLU(),
+                                         nn.Linear(256,128), 
+                                         SiLU(),
+                                         nn.Linear(128,20)])
         
         weight=torch.Tensor([0.20436299, 0.1179275 , 0.33303599, 0.52893951, 0.11640093,
        0.46711541, 0.50658995, 0.48605252, 0.07768442, 0.13272283,
        0.33614847, 0.12151313, 0.83646248, 0.40872598, 0.08794104,
        0.22340302, 0.09152134, 1.12399645, 0.25329498, 0.21282773,
-       0.29102476, 0.78149307, 0.16830348, 0.34922972, 0.22085674,
-       0.18909223, 0.44096777, 0.4231034 , 0.23879121, 0.23047096])
+       #0.29102476, 0.78149307, 0.16830348, 0.34922972, 0.22085674,
+       #0.18909223, 0.44096777, 0.4231034 , 0.23879121, 0.23047096
+       ])
+        weight = torch.ones_like(weight)
         self.loss_fn = nn.MultiLabelSoftMarginLoss(weight=weight)
         self.class_names =['Self-direction: thought', 'Self-direction: action', 'Stimulation',
        'Hedonism', 'Achievement', 'Power: dominance', 'Power: resources',
@@ -131,9 +151,10 @@ class MLClassifier(pl.LightningModule):
        'Benevolence: caring', 'Benevolence: dependability',
        'Universalism: concern', 'Universalism: nature',
        'Universalism: tolerance', 'Universalism: objectivity',
-       'Self-direction', 'Power', 'Security', 'Conformity', 'Benevolence',
-       'Universalism', 'Openness to change', 'Self-enhancement',
-       'Conservation', 'Self-transcendence', ]
+    #    'Self-direction', 'Power', 'Security', 'Conformity', 'Benevolence',
+    #    'Universalism', 'Openness to change', 'Self-enhancement',
+    #    'Conservation', 'Self-transcendence',
+        ]
 
     def forward(self,x):
         emb = self.model(x)['last_hidden_state'][:,0,:]
@@ -166,14 +187,17 @@ class MLClassifier(pl.LightningModule):
         self.log("Training Macro F1", report['macro avg']['f1-score'],on_epoch=True)
         self.log("Training Micro F1", report['micro avg']['f1-score'],on_epoch=True)
         print('\n\n Training')
-        print(classification_report(predictions.cpu()>0.5,labels.cpu(),target_names=self.class_names[:20],zero_division=0))
+        a = 1.0*(predictions.cpu().flatten().numpy()>0.5)
+        b = 1.0*(labels.cpu().flatten().numpy())
+        print(len(a), sum([1 if a[i]==b[i] else 0 for i in range(len(a))])/len(a))
+        # print(np.sum(predictions.cpu().flatten().numpy()>0.5==labels.cpu().flatten().numpy()))
+        # print(classification_report(predictions.cpu()>0.5,labels.cpu(),target_names=self.class_names[:20],zero_division=0))
 
     def validation_step(self, batch,batch_idx):
         # training_step defines the train loop.
         # it is independent of forward
         X,y = batch
         o = self.forward(X)
-
         # print("\n\n\nHere\n\n\n",o.shape,y.shape)
         loss = self.loss_fn(o, y)
         # Logging to TensorBoard (if installed) by default
@@ -187,10 +211,12 @@ class MLClassifier(pl.LightningModule):
         self.log("Validation Macro F1", report['macro avg']['f1-score'],on_epoch=True)
         self.log("Validation Micro F1", report['micro avg']['f1-score'],on_epoch=True)
         print('\n\n Validation')
-        print(classification_report(predictions.cpu()>0.5,labels.cpu(),target_names=self.class_names[:20],zero_division=0))
+        a = 1*(predictions.cpu().flatten().numpy()>0.5)
+        b = 1*(labels.cpu().flatten().numpy())
+        print(len(a), sum([1 if a[i]==b[i] else 0 for i in range(len(a))])/len(a))
+        # print(classification_report(predictions.cpu()>0.5,labels.cpu(),target_names=self.class_names[:20],zero_division=0))
     
     def predict_step(self, batch, batch_idx):
-        # take average of `self.mc_iteration` iterations
         X,y = batch
         pred = self(X)
         return pred
@@ -198,7 +224,7 @@ class MLClassifier(pl.LightningModule):
     
 
     def configure_optimizers(self):
-        optimizer = optim.Adam(self.parameters(), lr=1e-5)
+        optimizer = optim.Adam(self.parameters(), lr=1e-4)
         return optimizer
         # lr_scheduler = optim.lr_scheduler.StepLR(optimizer,step_size=2,gamma=0.3)
         # return {"optimizer": optimizer,  "lr_scheduler": lr_scheduler}
@@ -209,7 +235,7 @@ class MLClassifier(pl.LightningModule):
 clf = MLClassifier(model)
 wandb_logger.watch(clf, log="all")
 
-trainer = pl.Trainer( max_epochs=50,accelerator="gpu", devices=1,logger=wandb_logger,)
+trainer = pl.Trainer( max_epochs=100,accelerator="gpu", devices=1,logger=wandb_logger,)
 trainer.fit(model=clf, train_dataloaders=train_loader,val_dataloaders = val_loader)
 # trainer.fit(model=clf, train_dataloaders=val_loader,val_dataloaders = val_loader)
 
@@ -221,9 +247,9 @@ trainer.fit(model=clf, train_dataloaders=train_loader,val_dataloaders = val_load
 
 
 
-predictions_test = trainer.predict(model=clf,dataloaders=test_loader)
-predictions = trainer.predict(model=clf,dataloaders=val_loader)
+# predictions_test = trainer.predict(model=clf,dataloaders=test_loader)
+# predictions = trainer.predict(model=clf,dataloaders=val_loader)
 
 
-pickle.dump(predictions,open('predictions_val43','wb'))
-pickle.dump(predictions_test,open('predictions_test43','wb'))
+# pickle.dump(predictions,open('predictions_val43','wb'))
+# pickle.dump(predictions_test,open('predictions_test43','wb'))
