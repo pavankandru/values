@@ -74,7 +74,7 @@ class Data(Dataset):
             df = df.merge(df4,on=["Argument ID"],how='left')
             df = df.merge(df5,on=["Argument ID"],how='left')
             df = extra_labels(df)
-            df = df.fillna(np.random.choice([0, 1]))
+            # df = df.fillna(np.random.choice([0, 1]))
             self.labels = df[df.columns.difference(['Argument ID','Conclusion','Stance','Premise'])]
 
         
@@ -149,37 +149,37 @@ class MLClassifier(pl.LightningModule):
         super().__init__()
         self.model=model
 
-        self.classifier1 = nn.Sequential(*[nn.Dropout(dropout),
-                                         nn.Linear(768,128),
-                                         nn.SiLU(),
-                                         nn.Linear(128,len(class_dict[1]))])
+        # self.classifier1 = nn.Sequential(*[nn.Dropout(dropout),
+        #                                  nn.Linear(768,128),
+        #                                  nn.SiLU(),
+        #                                  nn.Linear(128,len(class_dict[1]))])
         self.classifier2 = nn.Sequential(*[
                                          nn.Linear(768,128),
                                          nn.SiLU(),
                                          nn.Linear(128,len(class_dict[2]))])
-        self.classifier3 = nn.Sequential(*[nn.Dropout(dropout),
-                                         nn.Linear(768,128),
-                                         nn.SiLU(),
-                                         nn.Linear(128,len(class_dict[3]))])
-        self.classifier4 = nn.Sequential(*[nn.Dropout(dropout),
-                                         nn.Linear(768,128),
-                                         nn.SiLU(),
-                                         nn.Linear(128,len(class_dict[4]))])
-        self.classifier5 = nn.Sequential(*[nn.Dropout(dropout),
-                                         nn.Linear(768,128),
-                                         nn.SiLU(),
-                                         nn.Linear(128,len(class_dict[5]))])
-        self.classifier6 = nn.Sequential(*[nn.Dropout(dropout),
-                                         nn.Linear(768,128),
-                                         nn.SiLU(),
-                                         nn.Linear(128,len(class_dict[6]))])
+        # self.classifier3 = nn.Sequential(*[nn.Dropout(dropout),
+        #                                  nn.Linear(768,128),
+        #                                  nn.SiLU(),
+        #                                  nn.Linear(128,len(class_dict[3]))])
+        # self.classifier4 = nn.Sequential(*[nn.Dropout(dropout),
+        #                                  nn.Linear(768,128),
+        #                                  nn.SiLU(),
+        #                                  nn.Linear(128,len(class_dict[4]))])
+        # self.classifier5 = nn.Sequential(*[nn.Dropout(dropout),
+        #                                  nn.Linear(768,128),
+        #                                  nn.SiLU(),
+        #                                  nn.Linear(128,len(class_dict[5]))])
+        # self.classifier6 = nn.Sequential(*[nn.Dropout(dropout),
+        #                                  nn.Linear(768,128),
+        #                                  nn.SiLU(),
+        #                                  nn.Linear(128,len(class_dict[6]))])
 
-        self.loss_fn1 = nn.MultiLabelSoftMarginLoss()
+        # self.loss_fn1 = nn.MultiLabelSoftMarginLoss()
         self.loss_fn2 = nn.MultiLabelSoftMarginLoss()
-        self.loss_fn3 = nn.MultiLabelSoftMarginLoss()
-        self.loss_fn4 = nn.MultiLabelSoftMarginLoss()
-        self.loss_fn5 = nn.MultiLabelSoftMarginLoss()
-        self.loss_fn6 = nn.MultiLabelSoftMarginLoss()
+        # self.loss_fn3 = nn.MultiLabelSoftMarginLoss()
+        # self.loss_fn4 = nn.MultiLabelSoftMarginLoss()
+        # self.loss_fn5 = nn.MultiLabelSoftMarginLoss()
+        # self.loss_fn6 = nn.MultiLabelSoftMarginLoss()
         self.class_names = class_dict[2]
         self.train_res=[]
         self.val_res=[]
@@ -188,28 +188,26 @@ class MLClassifier(pl.LightningModule):
         otp =self.model(x,output_hidden_states=True)['hidden_states']
         
         emb1 = emb2 = otp[-1][:,0,:] #CLS token
-        emb3 = otp[-2][:,0,:] #CLS token
-        emb4 = otp[-3][:,0,:] #CLS token
-        emb5 = otp[-4][:,0,:] #CLS token
-        emb6 = otp[-5][:,0,:] #CLS token
+        # emb3 = otp[-2][:,0,:] #CLS token
+        # emb4 = otp[-3][:,0,:] #CLS token
+        # emb5 = otp[-4][:,0,:] #CLS token
+        # emb6 = otp[-5][:,0,:] #CLS token
 
-        o1 = self.classifier1(emb1)
+        # o1 = self.classifier1(emb1)
         o2 = self.classifier2(emb2)
-        o3 = self.classifier3(emb2)
-        o4 = self.classifier4(emb2)
-        o5 = self.classifier5(emb2)
-        o6 = self.classifier6(emb2)
-        return o1,o2,o3,o4,o5,o6
+
+        # o3 = self.classifier3(emb2)
+        # o4 = self.classifier4(emb2)
+        # o5 = self.classifier5(emb2)
+        # o6 = self.classifier6(emb2)
+        return None,o2,None,None,None,None#o1,o2,o3,o4,o5,o6
 
     def prediction_reducer(self,otps):
-        print(len(otps))
-        print(otps[0]['predictions'].shape)
         predictions = torch.cat([i['predictions'].detach() for i in otps])
         # predictions = predictions[:,[0, 2, 3, 5, 6, 7, 8, 9, 11, 12, 14, 15, 17, 18, 19, 20, 22, 23, 24, 25]]
         predictions = torch.sigmoid(predictions)
         if 'labels' in otps[0]:
             labels = torch.cat([i['labels'].detach() for i in otps])
-            print(predictions.shape)
             # labels=labels[:,[0, 2, 3, 5, 6, 7, 8, 9, 11, 12, 14, 15, 17, 18, 19, 20, 22, 23, 24, 25]]
             return predictions,labels
         return predictions
@@ -217,18 +215,18 @@ class MLClassifier(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         X,y1,y2,y3,y4,y5,y6 = batch
         o1,o2,o3,o4,o5,o6 = self.forward(X)
-        if y1 is not None:
+        if False and y3 is not None:
             loss1 = self.loss_fn1(o1, y1)
             loss2 = self.loss_fn2(o2, y2)
             loss3 = self.loss_fn3(o3, y3)
             loss4 = self.loss_fn4(o4, y4)
             loss5 = self.loss_fn5(o5, y5)
             loss6 = self.loss_fn6(o6, y6)
-            
             loss = loss1+(5*loss2)+loss3+loss4+loss5+loss6
             loss/=10
         else:
             loss = self.loss_fn2(o2, y2)
+        
         # Logging to TensorBoard (if installed) by default
         self.log("train_loss", loss)
         self.train_res.append({"predictions":o2,"labels":y2})
@@ -236,7 +234,8 @@ class MLClassifier(pl.LightningModule):
 
     def training_epoch_end(self, training_step_outputs):
         predictions,labels = self.prediction_reducer(self.train_res)
-        labels,predictions = labels.cpu(),1.0*(predictions.cpu()>0.1)
+        print(torch.mean(predictions,axis=0))
+        labels,predictions = labels.cpu(),1.0*(predictions.cpu()>0.3)
         print(torch.mean(predictions,axis=0))
         self.train_res=[]
         # print("\n\n\nHere\n\n\n",predictions.shape,labels.shape)
@@ -244,12 +243,12 @@ class MLClassifier(pl.LightningModule):
         self.log("Training Macro F1", report['macro avg']['f1-score'],on_epoch=True)
         self.log("Training Micro F1", report['micro avg']['f1-score'],on_epoch=True)
         print('\n\n****************************Training****************************')
-        print(classification_report(labels,predictions,target_names=self.class_names,zero_division=1))
+        # print(classification_report(labels,predictions,target_names=self.class_names,zero_division=1))
 
     def validation_step(self, batch,batch_idx):
         X,y1,y2,y3,y4,y5,y6 = batch
         o1,o2,o3,o4,o5,o6 = self.forward(X)
-        if y1 is not None:
+        if False and y3 is not None:
             loss1 = self.loss_fn1(o1, y1)
             loss2 = self.loss_fn2(o2, y2)
             loss3 = self.loss_fn3(o3, y3)
@@ -262,7 +261,6 @@ class MLClassifier(pl.LightningModule):
         else:
             loss = self.loss_fn2(o2, y2)
         
-        loss = loss1+(5*loss2)+loss3+loss4+loss5+loss6
         # Logging to TensorBoard (if installed) by default
         self.log("Validation loss", loss,on_epoch=True)
         self.val_res.append({"predictions":o2,"labels":y2})
@@ -270,7 +268,8 @@ class MLClassifier(pl.LightningModule):
 
     def validation_epoch_end(self, training_step_outputs):
         predictions,labels = self.prediction_reducer(self.val_res)
-        labels,predictions = labels.cpu(),1.0*(predictions.cpu()>0.5)
+        print(torch.mean(predictions,axis=0))
+        labels,predictions = labels.cpu(),1.0*(predictions.cpu()>0.3)
         print(torch.mean(predictions,axis=0))
         self.val_res=[]
         # print("\n\n\nHere\n\n\n",predictions.shape,labels.shape)
@@ -291,15 +290,15 @@ class MLClassifier(pl.LightningModule):
     
 
     def configure_optimizers(self):
-        params = list(self.named_parameters())
+        # params = list(self.named_parameters())
 
-        def is_backbone(n): return 'bert' in n
+        # def is_backbone(n): return 'bert' in n
 
-        grouped_parameters = [
-            {"params": [p for n, p in params if is_backbone(n)], 'lr': 1e-5},
-            {"params": [p for n, p in params if not is_backbone(n)], 'lr': 1e-3},
-        ]
-        optimizer = optim.AdamW(grouped_parameters, lr=1e-5)
+        # grouped_parameters = [
+        #     {"params": [p for n, p in params if is_backbone(n)], 'lr': 1e-4},
+        #     {"params": [p for n, p in params if not is_backbone(n)], 'lr': 1e-4},
+        # ]
+        optimizer = optim.AdamW(self.parameters(), lr=1e-4)
         # return optimizer
         lr_scheduler = optim.lr_scheduler.StepLR(optimizer,step_size=5,gamma=0.3)
         return {"optimizer": optimizer,  "lr_scheduler": lr_scheduler}
